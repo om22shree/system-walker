@@ -125,8 +125,14 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	http.Handle("/", http.FileServer(http.Dir("./static")))
-	http.HandleFunc("/ws", wsHandler)
+	// Add a simple logger middleware to see what the browser is asking for
+	mux := http.NewServeMux()
+
+	fs := http.FileServer(http.Dir("static"))
+	mux.Handle("/", fs)
+	mux.HandleFunc("/ws", wsHandler)
+
 	fmt.Println("System Walker Server active on http://localhost:8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	// Use the mux instead of the default handler
+	log.Fatal(http.ListenAndServe(":8080", mux))
 }
