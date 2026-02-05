@@ -31,12 +31,22 @@
             margin: 5px 0;
         }
 
-        .debug-raw {
+        .status {
             font-size: 10px;
-            color: #ff5f5f;
-            border-top: 1px solid #333;
-            pt: 5px;
-            margin-top: 10px;
+            margin-top: 5px;
+            padding: 2px 5px;
+            border-radius: 3px;
+            display: inline-block;
+        }
+
+        .online {
+            background: #238636;
+            color: #fff;
+        }
+
+        .offline {
+            background: #da3633;
+            color: #fff;
         }
 
         canvas {
@@ -74,49 +84,55 @@
 
     <div class="legend">
         <div id="name" style="color:#8b949e; font-size: 14px;">Connecting...</div>
-        <div id="mode-label" style="font-size:10px; color: #58a6ff; margin-top:4px;">INITIALIZING</div>
+        <div id="conn-status" class="status offline">OFFLINE</div>
         <div id="current" class="val">0.00</div>
-        <div id="range-info" style="font-size:10px; color:#666;">RANGE: AUTO</div>
-        <div id="debug" class="debug-raw">RAW_IN: WAITING...</div>
+        <div id="debug" style="font-size:10px; color:#555; margin-top:10px;">RAW: 0</div>
     </div>
     <canvas id="canvas"></canvas>
 
     <script>
         const params = new URLSearchParams(window.location.search);
-        const targetPath = params.get('path');
+        // Use decodeURIComponent to ensure complex paths like app-gnome@... aren't broken
+        const targetPath = decodeURIComponent(params.get('path'));
         const mode = params.get('mode');
-        const socket = new WebSocket(`ws://${window.location.host}/ws`);
-
+        let socket;
         let history = [];
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
 
-        socket.onopen = () => socket.send(JSON.stringify({ focus: targetPath }));
+        function connect() {
+            socket = new WebSocket(`ws://${window.location.host}/ws`);
 
-        socket.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            // Deep search for the node in the packet
-            const node = data.nodes.find(n => n.path === targetPath);
-            if (!node) return;
+            socket.onopen = () => {
+                document.getElementById('conn-status').innerText = "LIVE";
+                document.getElementById('conn-status').className = "status online";
+                socket.send(JSON.stringify({ focus: targetPath }));
+            };
 
-            document.getElementById('name').innerText = node.name;
+            socket.onclose = () => {
+                document.getElementById('conn-status').innerText = "RECONNECTING...";
+                document.getElementById('conn-status').className = "status offline";
+                setTimeout(connect, 1000); // Try again in 1s
+            };
 
-            // Capture raw value before any processing
-            let raw = mode === 'cpu' ? node.cpu : mode === 'ram' ? node.ram : node.net_raw;
-            document.getElementById('debug').innerText = `RAW_IN: ${raw}`;
+            socket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                const node = data.nodes.find(n => n.path === targetPath);
+                if (!node) return;
 
-            let val = raw;
-            const unit = mode === 'cpu' ? '%' : mode === 'ram' ? 'MB' : 'KB/s';
+                document.getElementById('name').innerText = node.name;
+                let val = mode === 'cpu' ? node.cpu : mode === 'ram' ? node.ram : node.net_raw;
+                document.getElementById('debug').innerText = `RAW: ${val.toFixed(4)}`;
 
-            // Format display
-            const displayVal = mode === 'net' ? (val / 1024).toFixed(1) : val.toFixed(1);
-            document.getElementById('current').innerText = `${displayVal} ${unit}`;
+                const unit = mode === 'cpu' ? '%' : mode === 'ram' ? 'MB' : 'KB/s';
+                const displayVal = mode === 'net' ? (val / 1024).toFixed(1) : val.toFixed(1);
+                document.getElementById('current').innerText = `${displayVal} ${unit}`;
 
-            history.push(val);
-            if (history.length > 300) history.shift();
-
-            draw(unit);
-        };
+                history.push(val);
+                if (history.length > 300) history.shift();
+                draw(unit);
+            };
+        }
 
         function draw(unit) {
             canvas.width = window.innerWidth;
@@ -125,50 +141,37 @@
 
             let hMin = Math.min(...history);
             let hMax = Math.max(...history);
-
-            // If we are seeing 0 but the user expects 1000s, 
-            // ensure the range logic doesn't squash the line.
-            if (hMax === hMin) {
-                hMax = hMin + 1; // Force a visible window
-            }
+            if (hMax === hMin) hMax = hMin + 1;
 
             const range = hMax - hMin;
             const padding = 100;
             const color = mode === 'cpu' ? '#58a6ff' : mode === 'ram' ? '#a371f7' : '#3fb950';
 
-            // Update Axis Labels
-            document.getElementById('y-max').innerText = Math.ceil(hMax) + unit;
-            document.getElementById('y-min').innerText = Math.floor(hMin) + unit;
+            document.getElementById('y-max').innerText = hMax.toFixed(1) + unit;
+            document.getElementById('y-min').innerText = hMin.toFixed(1) + unit;
             document.getElementById('y-mid').innerText = ((hMax + hMin) / 2).toFixed(1) + unit;
             document.getElementById('current').style.color = color;
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // Grid Lines
             ctx.strokeStyle = '#222';
             [padding, canvas.height / 2, canvas.height - padding].forEach(y => {
                 ctx.beginPath(); ctx.moveTo(80, y); ctx.lineTo(canvas.width, y); ctx.stroke();
             });
 
-            // Data Path
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 4;
-            ctx.beginPath();
-
+            ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.beginPath();
             history.forEach((v, i) => {
                 const x = 80 + (i / (history.length - 1)) * (canvas.width - 80);
-                // Vertical map: ensure thousands are handled by the (v-hMin)/range ratio
                 const y = (canvas.height - padding) - ((v - hMin) / range) * (canvas.height - padding * 2);
                 if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
             });
             ctx.stroke();
 
-            // Fill
             ctx.lineTo(canvas.width, canvas.height); ctx.lineTo(80, canvas.height);
             ctx.fillStyle = color + '15'; ctx.fill();
         }
 
         window.onresize = () => draw();
+        connect(); // Start the first connection
     </script>
 </body>
 
