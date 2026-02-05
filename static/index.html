@@ -15,9 +15,9 @@
         }
 
         body {
-            background-color: var(--bg);
+            background: var(--bg);
             color: var(--text);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: sans-serif;
             margin: 0;
             padding: 20px;
         }
@@ -30,16 +30,14 @@
         .header {
             border: 1px solid var(--border);
             background: var(--panel);
-            padding: 12px 20px;
+            padding: 15px;
             border-radius: 6px;
             margin-bottom: 15px;
             display: flex;
             justify-content: space-between;
-            align-items: center;
         }
 
-        /* Independent Search & Nav Bar */
-        .controls {
+        .toolbar {
             display: grid;
             grid-template-columns: 1fr 300px;
             gap: 15px;
@@ -52,8 +50,6 @@
             padding: 10px;
             border-radius: 4px;
             font-family: monospace;
-            overflow-x: auto;
-            white-space: nowrap;
         }
 
         .breadcrumb span {
@@ -61,53 +57,34 @@
             cursor: pointer;
         }
 
-        .breadcrumb span:hover {
-            text-decoration: underline;
-        }
-
-        .search-box {
-            position: relative;
-        }
-
         .search-input {
             width: 100%;
             background: #090c10;
             border: 1px solid var(--border);
             color: var(--text);
-            padding: 10px 15px;
+            padding: 10px;
             border-radius: 4px;
-            box-sizing: border-box;
             outline: none;
         }
 
         .search-input:focus {
             border-color: var(--accent);
-            box-shadow: 0 0 0 1px var(--accent);
         }
 
-        /* Table Styling */
         .node-table {
             width: 100%;
             border-collapse: collapse;
             background: var(--panel);
             border: 1px solid var(--border);
-            border-radius: 6px;
-            overflow: hidden;
         }
 
         .node-table th {
             text-align: left;
-            padding: 12px 15px;
+            padding: 12px;
             background: #21262d;
             color: #8b949e;
-            font-size: 13px;
             cursor: pointer;
-            user-select: none;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .node-table th:hover {
-            color: var(--text);
+            font-size: 13px;
         }
 
         .node-row {
@@ -120,26 +97,12 @@
         }
 
         .node-row td {
-            padding: 10px 15px;
-            font-family: 'Cascadia Code', monospace;
-            font-size: 14px;
+            padding: 10px 12px;
+            font-family: monospace;
         }
 
         .name-cell {
             color: var(--accent);
-            display: flex;
-            align-items: center;
-        }
-
-        .folder-icon {
-            margin-right: 10px;
-            opacity: 0.7;
-        }
-
-        .empty-state {
-            padding: 40px;
-            text-align: center;
-            color: #8b949e;
         }
     </style>
 </head>
@@ -148,16 +111,12 @@
     <div class="container">
         <div class="header">
             <div><strong style="color: var(--success)">●</strong> System Walker Pro</div>
-            <div id="meta" style="font-family: monospace; font-size: 14px;">Syncing Kernel...</div>
+            <div id="meta" style="font-family: monospace;">Syncing...</div>
         </div>
-
-        <div class="controls">
+        <div class="toolbar">
             <div id="breadcrumb" class="breadcrumb">/</div>
-            <div class="search-box">
-                <input type="text" id="search" class="search-input" placeholder="Filter by name (e.g. systemd)...">
-            </div>
+            <input type="text" id="search" class="search-input" placeholder="Search (e.g. chrome)...">
         </div>
-
         <table class="node-table">
             <thead>
                 <tr>
@@ -170,61 +129,43 @@
             <tbody id="dashboard"></tbody>
         </table>
     </div>
-
     <script>
         let allNodes = [];
         let sortField = 'name';
-        let sortOrder = 1; // 1 for Asc, -1 for Desc
+        let sortOrder = 1;
         let filterText = "";
 
         const socket = new WebSocket(`ws://${window.location.host}/ws`);
         const dashboard = document.getElementById('dashboard');
         const searchInput = document.getElementById('search');
 
-        // Search Logic: Independent of data fetch
         searchInput.addEventListener('input', (e) => {
             filterText = e.target.value.toLowerCase();
-            updateUI();
+            render();
         });
 
         function setSort(field) {
             if (sortField === field) sortOrder *= -1;
             else { sortField = field; sortOrder = 1; }
-            updateUI();
+            render();
         }
 
-        function navigate(path) {
-            socket.send(path);
-        }
+        function navigate(path) { socket.send(path); }
 
-        function updateUI() {
-            // 1. Filter
-            let displayNodes = allNodes.filter(n => n.name.toLowerCase().includes(filterText));
-
-            // 2. Sort
-            displayNodes.sort((a, b) => {
-                let v1 = a[sortField];
-                let v2 = b[sortField];
-
-                // Numeric parsing for CPU/RAM/PIDs
+        function render() {
+            let filtered = allNodes.filter(n => n.name.toLowerCase().includes(filterText));
+            filtered.sort((a, b) => {
+                let v1 = a[sortField], v2 = b[sortField];
                 if (sortField !== 'name') {
-                    v1 = parseFloat(v1) || parseInt(v1) || 0;
-                    v2 = parseFloat(v2) || parseInt(v2) || 0;
+                    v1 = parseFloat(v1) || 0; v2 = parseFloat(v2) || 0;
                 }
-
                 return v1 > v2 ? (1 * sortOrder) : (-1 * sortOrder);
             });
 
-            // 3. Render
-            if (displayNodes.length === 0) {
-                dashboard.innerHTML = `<tr><td colspan="4" class="empty-state">No nodes match your filter.</td></tr>`;
-                return;
-            }
-
-            dashboard.innerHTML = displayNodes.map(node => `
+            dashboard.innerHTML = filtered.map(node => `
                 <tr class="node-row" onclick="navigate('${node.path}')">
-                    <td class="name-cell"><span class="folder-icon">📁</span>${node.name}</td>
-                    <td>${node.cpu}</td>
+                    <td class="name-cell">📁 ${node.name}</td>
+                    <td style="color: ${parseFloat(node.cpu) > 0 ? 'var(--success)' : 'inherit'}">${node.cpu}</td>
                     <td>${node.ram}</td>
                     <td>${node.pids}</td>
                 </tr>
@@ -234,26 +175,17 @@
         socket.onmessage = (event) => {
             const data = JSON.parse(event.data);
             allNodes = data.nodes || [];
+            document.getElementById('meta').innerText = `${data.timestamp} | Cores: ${data.cores}`;
 
-            // Meta info
-            document.getElementById('meta').innerText = `${data.timestamp} | Cores: ${data.cores} | ${data.location}`;
-
-            // Breadcrumbs
-            const parts = data.location.split('/').filter(p => p);
+            // Build Breadcrumbs
             let pathAcc = '/sys/fs/cgroup';
             let bHtml = `<span onclick="navigate('/sys/fs/cgroup')">root</span>`;
-            parts.forEach(p => {
+            data.location.split('/').filter(p => p).forEach(p => {
                 pathAcc += '/' + p;
                 bHtml += ` / <span onclick="navigate('${pathAcc}')">${p}</span>`;
             });
             document.getElementById('breadcrumb').innerHTML = bHtml;
-
-            updateUI();
-        };
-
-        socket.onclose = () => {
-            document.getElementById('meta').innerText = "CONNECTION LOST";
-            document.getElementById('meta').style.color = "#f85149";
+            render();
         };
     </script>
 </body>

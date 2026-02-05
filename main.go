@@ -47,16 +47,20 @@ func getSystemMetrics(currentPath string) MetricUpdate {
 		}
 		path := filepath.Join(currentPath, entry.Name())
 
+		// CPU Calculation: Normalized to 100% per core
 		cpuUsage := getCPUUsage(path)
 		cpuPercent := 0.0
 		if prev, ok := lastCPUTimes[path]; ok {
-			cpuPercent = float64(cpuUsage-prev) / 1000000.0 * 100 / float64(runtime.NumCPU())
+			// Delta / 10,000 provides a 0-100% scale relative to 1 core
+			cpuPercent = float64(cpuUsage-prev) / 10000.0
 		}
 		lastCPUTimes[path] = cpuUsage
 
+		// RAM Calculation
 		memData, _ := os.ReadFile(filepath.Join(path, "memory.current"))
 		memRaw, _ := strconv.ParseInt(strings.TrimSpace(string(memData)), 10, 64)
 
+		// PID Calculation
 		pidData, _ := os.ReadFile(filepath.Join(path, "cgroup.procs"))
 		pidCount := len(strings.Fields(string(pidData)))
 
@@ -70,8 +74,14 @@ func getSystemMetrics(currentPath string) MetricUpdate {
 	}
 
 	rel, _ := filepath.Rel(cgroupRoot, currentPath)
+	if rel == "." {
+		rel = "/"
+	} else {
+		rel = "/" + rel
+	}
+
 	return MetricUpdate{
-		Location:  "/" + rel,
+		Location:  rel,
 		Cores:     runtime.NumCPU(),
 		Nodes:     nodes,
 		Timestamp: time.Now().Format("15:04:05"),
@@ -101,7 +111,6 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	currentPath := cgroupRoot
-
 	go func() {
 		for {
 			_, msg, err := conn.ReadMessage()
@@ -116,6 +125,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
 	for range ticker.C {
 		metrics := getSystemMetrics(currentPath)
 		if err := conn.WriteJSON(metrics); err != nil {
@@ -125,14 +135,15 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// Add a simple logger middleware to see what the browser is asking for
-	mux := http.NewServeMux()
+	// Docker standard path
+	staticPath := "/root/static"
+	if _, err := os.Stat(staticPath); os.IsNotExist(err) {
+		staticPath = "./static" // Local fallback
+	}
 
-	fs := http.FileServer(http.Dir("static"))
-	mux.Handle("/", fs)
-	mux.HandleFunc("/ws", wsHandler)
+	http.Handle("/", http.FileServer(http.Dir(staticPath)))
+	http.HandleFunc("/ws", wsHandler)
 
-	fmt.Println("System Walker Server active on http://localhost:8080")
-	// Use the mux instead of the default handler
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	fmt.Println("🚀 System Walker active on http://localhost:8080")
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
