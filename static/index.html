@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>System Walker v15.1</title>
+    <title>System Walker v17.0</title>
     <style>
         :root {
             --bg: #0d1117;
@@ -24,7 +24,7 @@
         .header {
             display: flex;
             gap: 15px;
-            margin: 20px;
+            margin-bottom: 20px;
             align-items: center;
         }
 
@@ -35,7 +35,6 @@
             flex: 1;
             border: 1px solid var(--border);
             border-radius: 6px;
-            font-size: 13px;
             color: #8b949e;
         }
 
@@ -43,10 +42,6 @@
             color: var(--accent);
             cursor: pointer;
             font-weight: bold;
-        }
-
-        .breadcrumb span:hover {
-            text-decoration: underline;
         }
 
         .search-box {
@@ -60,11 +55,11 @@
         }
 
         .node-table {
-            width: calc(100% - 40px);
-            margin: 0 20px;
+            width: 100%;
             border-collapse: collapse;
             background: var(--panel);
             border: 1px solid var(--border);
+            table-layout: fixed;
         }
 
         .node-table th {
@@ -81,6 +76,9 @@
             border-bottom: 1px solid var(--border);
             font-family: monospace;
             font-size: 13px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .clickable {
@@ -89,15 +87,28 @@
             font-weight: bold;
         }
 
-        .val-cell {
-            cursor: pointer;
-            padding: 4px 8px;
+        .metric-btn {
+            display: inline-block;
+            min-width: 70px;
+            padding: 6px;
             border-radius: 4px;
+            cursor: pointer;
+            text-align: right;
         }
 
-        .val-cell:hover {
+        .metric-btn:hover {
             background: #30363d;
             color: #fff;
+        }
+
+        button {
+            background: #238636;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
         }
     </style>
 </head>
@@ -105,16 +116,15 @@
 <body>
     <div class="header">
         <div id="breadcrumb" class="breadcrumb">/</div>
-        <input type="text" id="search" class="search-box" placeholder="Recursive Search (e.g. chrome)...">
+        <input type="text" id="search" class="search-box" placeholder="Recursive Search...">
     </div>
     <table class="node-table">
         <thead>
             <tr>
-                <th>Node</th>
-                <th>CPU</th>
-                <th>RAM</th>
-                <th>Net</th>
-                <th>Control</th>
+                <th style="width:45%">Node</th>
+                <th style="width:15%">CPU</th>
+                <th style="width:15%">RAM</th>
+                <th style="width:25%">Action</th>
             </tr>
         </thead>
         <tbody id="dashboard"></tbody>
@@ -122,68 +132,54 @@
 
     <script>
         const socket = new WebSocket(`ws://${window.location.host}/ws`);
-        let lastNodesSig = "";
+        let currentPathList = "";
 
         socket.onmessage = (event) => {
             const data = JSON.parse(event.data);
             const nodes = data.nodes || [];
+            nodes.sort((a, b) => a.name.localeCompare(b.name));
 
-            // Sync breadcrumbs to the current server location
-            updateBreadcrumbs(data.location);
-
-            const sig = nodes.map(n => n.path).join(",");
-            if (sig !== lastNodesSig) {
-                renderRows(nodes);
-                lastNodesSig = sig;
+            const pathList = nodes.map(n => n.path).join("|");
+            if (pathList !== currentPathList) {
+                renderTable(nodes);
+                currentPathList = pathList;
             }
 
             nodes.forEach(n => {
                 const row = document.getElementById(`row-${btoa(n.path)}`);
                 if (row) {
-                    row.querySelector('.cpu-v').innerText = n.cpu.toFixed(2) + '%';
+                    row.querySelector('.cpu-v').innerText = n.cpu.toFixed(1) + '%';
                     row.querySelector('.ram-v').innerText = n.ram + 'MB';
-                    row.querySelector('.net-v').innerText = (n.net_raw / 1024).toFixed(1) + 'k';
                 }
             });
+            updateBreadcrumbs(data.location);
         };
 
+        function renderTable(nodes) {
+            document.getElementById('dashboard').innerHTML = nodes.map(n => `
+                <tr id="row-${btoa(n.path)}" class="node-row">
+                    <td class="clickable" onclick="nav('${n.path}')">📁 ${n.name}</td>
+                    <td><div class="metric-btn cpu-v" onclick="openGraph('${n.id}','cpu')">--</div></td>
+                    <td><div class="metric-btn ram-v" onclick="openGraph('${n.id}','ram')">--</div></td>
+                    <td><button onclick="act('freeze','${n.path}')">FREEZE</button></td>
+                </tr>
+            `).join('');
+        }
+
         function updateBreadcrumbs(path) {
-            // Normalize path: remove the root prefix for display but keep it for logic
             const root = "/sys/fs/cgroup";
-            let displayPath = path.replace(root, "") || "/";
-            if (displayPath === "") displayPath = "/";
-
-            let acc = root;
-            let html = `<span onclick="nav('${root}')">root</span>`;
-
-            const parts = displayPath.split('/').filter(p => p);
-            parts.forEach(p => {
+            let display = path.replace(root, "") || "/";
+            let acc = root, html = `<span onclick="nav('${root}')">root</span>`;
+            display.split('/').filter(p => p).forEach(p => {
                 acc += '/' + p;
                 html += ` / <span onclick="nav('${acc}')">${p}</span>`;
             });
             document.getElementById('breadcrumb').innerHTML = html;
         }
 
-        function renderRows(nodes) {
-            document.getElementById('dashboard').innerHTML = nodes.map(n => `
-                <tr id="row-${btoa(n.path)}" class="node-row">
-                    <td class="clickable" onclick="nav('${n.path}')">📁 ${n.name}</td>
-                    <td><span class="val-cell cpu-v" onclick="openGraph('${n.path}','cpu')">--</span></td>
-                    <td><span class="val-cell ram-v" onclick="openGraph('${n.path}','ram')">--</span></td>
-                    <td><span class="val-cell net-v" onclick="openGraph('${n.path}','net')">--</span></td>
-                    <td><button onclick="act('freeze','${n.path}')" style="background:#238636;color:white;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:11px;">Freeze</button></td>
-                </tr>
-            `).join('');
-        }
-
-        function nav(p) {
-            // Clear search when navigating manually
-            document.getElementById('search').value = "";
-            socket.send(JSON.stringify({ path: p, search: "" }));
-        }
-
+        function nav(p) { socket.send(JSON.stringify({ path: p })); }
         function act(a, t) { socket.send(JSON.stringify({ action: a, target: t })); }
-        function openGraph(p, m) { window.open(`/graph.html?path=${encodeURIComponent(p)}&mode=${m}`, '_blank'); }
+        function openGraph(id, m) { window.open(`/graph.html?id=${id}&mode=${m}`, '_blank'); }
 
         document.getElementById('search').oninput = (e) => {
             socket.send(JSON.stringify({ search: e.target.value }));
