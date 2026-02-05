@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Walker Inspector</title>
+    <style>
+        body {
+            background: #000;
+            color: #fff;
+            font-family: monospace;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        .legend {
+            position: absolute;
+            top: 20px;
+            left: 85px;
+            background: rgba(10, 10, 10, 0.9);
+            padding: 15px;
+            border: 1px solid #444;
+            border-radius: 8px;
+            z-index: 10;
+            min-width: 220px;
+        }
+
+        .val {
+            font-size: 38px;
+            font-weight: bold;
+            margin: 5px 0;
+        }
+
+        .debug-raw {
+            font-size: 10px;
+            color: #ff5f5f;
+            border-top: 1px solid #333;
+            pt: 5px;
+            margin-top: 10px;
+        }
+
+        canvas {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+
+        .y-axis {
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            width: 80px;
+            border-right: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 100px 10px;
+            box-sizing: border-box;
+            color: #aaa;
+            font-size: 11px;
+            background: #050505;
+            text-align: right;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="y-axis">
+        <div id="y-max">--</div>
+        <div id="y-mid" style="color:#444">--</div>
+        <div id="y-min">--</div>
+    </div>
+
+    <div class="legend">
+        <div id="name" style="color:#8b949e; font-size: 14px;">Connecting...</div>
+        <div id="mode-label" style="font-size:10px; color: #58a6ff; margin-top:4px;">INITIALIZING</div>
+        <div id="current" class="val">0.00</div>
+        <div id="range-info" style="font-size:10px; color:#666;">RANGE: AUTO</div>
+        <div id="debug" class="debug-raw">RAW_IN: WAITING...</div>
+    </div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const targetPath = params.get('path');
+        const mode = params.get('mode');
+        const socket = new WebSocket(`ws://${window.location.host}/ws`);
+
+        let history = [];
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        socket.onopen = () => socket.send(JSON.stringify({ focus: targetPath }));
+
+        socket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            // Deep search for the node in the packet
+            const node = data.nodes.find(n => n.path === targetPath);
+            if (!node) return;
+
+            document.getElementById('name').innerText = node.name;
+
+            // Capture raw value before any processing
+            let raw = mode === 'cpu' ? node.cpu : mode === 'ram' ? node.ram : node.net_raw;
+            document.getElementById('debug').innerText = `RAW_IN: ${raw}`;
+
+            let val = raw;
+            const unit = mode === 'cpu' ? '%' : mode === 'ram' ? 'MB' : 'KB/s';
+
+            // Format display
+            const displayVal = mode === 'net' ? (val / 1024).toFixed(1) : val.toFixed(1);
+            document.getElementById('current').innerText = `${displayVal} ${unit}`;
+
+            history.push(val);
+            if (history.length > 300) history.shift();
+
+            draw(unit);
+        };
+
+        function draw(unit) {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            if (history.length < 2) return;
+
+            let hMin = Math.min(...history);
+            let hMax = Math.max(...history);
+
+            // If we are seeing 0 but the user expects 1000s, 
+            // ensure the range logic doesn't squash the line.
+            if (hMax === hMin) {
+                hMax = hMin + 1; // Force a visible window
+            }
+
+            const range = hMax - hMin;
+            const padding = 100;
+            const color = mode === 'cpu' ? '#58a6ff' : mode === 'ram' ? '#a371f7' : '#3fb950';
+
+            // Update Axis Labels
+            document.getElementById('y-max').innerText = Math.ceil(hMax) + unit;
+            document.getElementById('y-min').innerText = Math.floor(hMin) + unit;
+            document.getElementById('y-mid').innerText = ((hMax + hMin) / 2).toFixed(1) + unit;
+            document.getElementById('current').style.color = color;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Grid Lines
+            ctx.strokeStyle = '#222';
+            [padding, canvas.height / 2, canvas.height - padding].forEach(y => {
+                ctx.beginPath(); ctx.moveTo(80, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+            });
+
+            // Data Path
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+
+            history.forEach((v, i) => {
+                const x = 80 + (i / (history.length - 1)) * (canvas.width - 80);
+                // Vertical map: ensure thousands are handled by the (v-hMin)/range ratio
+                const y = (canvas.height - padding) - ((v - hMin) / range) * (canvas.height - padding * 2);
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+
+            // Fill
+            ctx.lineTo(canvas.width, canvas.height); ctx.lineTo(80, canvas.height);
+            ctx.fillStyle = color + '15'; ctx.fill();
+        }
+
+        window.onresize = () => draw();
+    </script>
+</body>
+
+</html>

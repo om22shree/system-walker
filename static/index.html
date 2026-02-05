@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>System Walker v7.5</title>
+    <title>System Walker v15.0</title>
     <style>
         :root {
             --bg: #0d1117;
@@ -11,64 +11,37 @@
             --border: #30363d;
             --text: #c9d1d9;
             --accent: #58a6ff;
-            --success: #3fb950;
         }
 
         body {
             background: var(--bg);
             color: var(--text);
             font-family: sans-serif;
-            margin: 0;
             padding: 20px;
         }
 
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-
         .header {
-            border: 1px solid var(--border);
-            background: var(--panel);
-            padding: 15px;
-            border-radius: 6px;
-            margin-bottom: 15px;
             display: flex;
-            justify-content: space-between;
-        }
-
-        .toolbar {
-            display: grid;
-            grid-template-columns: 1fr 300px;
             gap: 15px;
-            margin-bottom: 15px;
+            margin-bottom: 20px;
         }
 
         .breadcrumb {
-            background: #090c10;
-            border: 1px solid var(--border);
-            padding: 10px;
-            border-radius: 4px;
             font-family: monospace;
-        }
-
-        .breadcrumb span {
-            color: var(--accent);
-            cursor: pointer;
-        }
-
-        .search-input {
-            width: 100%;
-            background: #090c10;
-            border: 1px solid var(--border);
-            color: var(--text);
+            background: #000;
             padding: 10px;
+            flex: 1;
+            border: 1px solid var(--border);
             border-radius: 4px;
-            outline: none;
         }
 
-        .search-input:focus {
-            border-color: var(--accent);
+        .search-box {
+            background: #000;
+            border: 1px solid var(--border);
+            color: #fff;
+            padding: 10px;
+            width: 250px;
+            border-radius: 4px;
         }
 
         .node-table {
@@ -79,114 +52,99 @@
         }
 
         .node-table th {
-            text-align: left;
-            padding: 12px;
             background: #21262d;
+            padding: 12px;
+            text-align: left;
+            font-size: 11px;
             color: #8b949e;
-            cursor: pointer;
-            font-size: 13px;
-        }
-
-        .node-row {
-            border-bottom: 1px solid var(--border);
-            cursor: pointer;
-        }
-
-        .node-row:hover {
-            background: #30363d;
         }
 
         .node-row td {
             padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
             font-family: monospace;
+            font-size: 13px;
         }
 
-        .name-cell {
+        .clickable {
+            cursor: pointer;
             color: var(--accent);
+            font-weight: bold;
+        }
+
+        .val-cell {
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+
+        .val-cell:hover {
+            background: #30363d;
         }
     </style>
 </head>
 
 <body>
-    <div class="container">
-        <div class="header">
-            <div><strong style="color: var(--success)">●</strong> System Walker Pro</div>
-            <div id="meta" style="font-family: monospace;">Syncing...</div>
-        </div>
-        <div class="toolbar">
-            <div id="breadcrumb" class="breadcrumb">/</div>
-            <input type="text" id="search" class="search-input" placeholder="Search (e.g. chrome)...">
-        </div>
-        <table class="node-table">
-            <thead>
-                <tr>
-                    <th onclick="setSort('name')">Node Name ⇅</th>
-                    <th onclick="setSort('cpu')">CPU ⇅</th>
-                    <th onclick="setSort('ram')">RAM ⇅</th>
-                    <th onclick="setSort('pids')">PIDs ⇅</th>
-                </tr>
-            </thead>
-            <tbody id="dashboard"></tbody>
-        </table>
+    <div class="header">
+        <div id="breadcrumb" class="breadcrumb">/</div>
+        <input type="text" id="search" class="search-box" placeholder="Recursive Search...">
     </div>
+    <table class="node-table">
+        <thead>
+            <tr>
+                <th>Node</th>
+                <th>CPU</th>
+                <th>RAM</th>
+                <th>Net</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="dashboard"></tbody>
+    </table>
+
     <script>
-        let allNodes = [];
-        let sortField = 'name';
-        let sortOrder = 1;
-        let filterText = "";
-
         const socket = new WebSocket(`ws://${window.location.host}/ws`);
-        const dashboard = document.getElementById('dashboard');
-        const searchInput = document.getElementById('search');
+        let lastNodes = "";
 
-        searchInput.addEventListener('input', (e) => {
-            filterText = e.target.value.toLowerCase();
-            render();
-        });
+        socket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            const nodes = data.nodes || [];
 
-        function setSort(field) {
-            if (sortField === field) sortOrder *= -1;
-            else { sortField = field; sortOrder = 1; }
-            render();
-        }
+            // Only rebuild rows if the list of nodes changes (prevents click jitter)
+            const nodeSignature = nodes.map(n => n.path).join(",");
+            if (nodeSignature !== lastNodes) {
+                renderRows(nodes);
+                lastNodes = nodeSignature;
+            }
 
-        function navigate(path) { socket.send(path); }
-
-        function render() {
-            let filtered = allNodes.filter(n => n.name.toLowerCase().includes(filterText));
-            filtered.sort((a, b) => {
-                let v1 = a[sortField], v2 = b[sortField];
-                if (sortField !== 'name') {
-                    v1 = parseFloat(v1) || 0; v2 = parseFloat(v2) || 0;
+            // Update values in-place
+            nodes.forEach(n => {
+                const row = document.getElementById(`row-${btoa(n.path)}`);
+                if (row) {
+                    row.querySelector('.cpu-v').innerText = n.cpu.toFixed(2) + '%';
+                    row.querySelector('.ram-v').innerText = n.ram + 'MB';
+                    row.querySelector('.net-v').innerText = (n.net_raw / 1024).toFixed(1) + 'k';
                 }
-                return v1 > v2 ? (1 * sortOrder) : (-1 * sortOrder);
             });
+            document.getElementById('breadcrumb').innerText = data.location;
+        };
 
-            dashboard.innerHTML = filtered.map(node => `
-                <tr class="node-row" onclick="navigate('${node.path}')">
-                    <td class="name-cell">📁 ${node.name}</td>
-                    <td style="color: ${parseFloat(node.cpu) > 0 ? 'var(--success)' : 'inherit'}">${node.cpu}</td>
-                    <td>${node.ram}</td>
-                    <td>${node.pids}</td>
+        function renderRows(nodes) {
+            document.getElementById('dashboard').innerHTML = nodes.map(n => `
+                <tr id="row-${btoa(n.path)}" class="node-row">
+                    <td class="clickable" onclick="nav('${n.path}')">📁 ${n.name}</td>
+                    <td><span class="val-cell cpu-v" onclick="openGraph('${n.path}','cpu')">--</span></td>
+                    <td><span class="val-cell ram-v" onclick="openGraph('${n.path}','ram')">--</span></td>
+                    <td><span class="val-cell net-v" onclick="openGraph('${n.path}','net')">--</span></td>
+                    <td><button onclick="act('freeze','${n.path}')" style="background:#238636;color:white;border:none;padding:4px 8px;border-radius:3px;cursor:pointer">Freeze</button></td>
                 </tr>
             `).join('');
         }
 
-        socket.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            allNodes = data.nodes || [];
-            document.getElementById('meta').innerText = `${data.timestamp} | Cores: ${data.cores}`;
-
-            // Build Breadcrumbs
-            let pathAcc = '/sys/fs/cgroup';
-            let bHtml = `<span onclick="navigate('/sys/fs/cgroup')">root</span>`;
-            data.location.split('/').filter(p => p).forEach(p => {
-                pathAcc += '/' + p;
-                bHtml += ` / <span onclick="navigate('${pathAcc}')">${p}</span>`;
-            });
-            document.getElementById('breadcrumb').innerHTML = bHtml;
-            render();
-        };
+        function nav(p) { socket.send(JSON.stringify({ path: p })); }
+        function act(a, t) { socket.send(JSON.stringify({ action: a, target: t })); }
+        function openGraph(p, m) { window.open(`/graph.html?path=${encodeURIComponent(p)}&mode=${m}`, '_blank'); }
+        document.getElementById('search').oninput = (e) => socket.send(JSON.stringify({ search: e.target.value }));
     </script>
 </body>
 

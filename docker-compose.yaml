@@ -4,9 +4,18 @@ services:
     container_name: system-walker
     privileged: true
     network_mode: "host"
-    ports:
-      - "8080:8080"
+    pid: "host"
+    # 'capabilities' was wrong; 'cap_add' is the correct property
+    cap_add:
+      - NET_ADMIN
+      - BPF
+      - SYS_ADMIN
     volumes:
       - /sys/fs/cgroup:/sys/fs/cgroup:ro
+      - /sys/fs/bpf:/sys/fs/bpf:rw
       - /proc:/proc:ro
+      - /lib/modules:/lib/modules:ro
+      - /usr/src:/usr/src:ro
+    environment:
+      - CGROUP_ROOT=/sys/fs/cgroup
     restart: unless-stopped
