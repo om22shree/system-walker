@@ -1,0 +1,12 @@
+services:
+  system-walker:
+    build: .
+    container_name: system-walker
+    privileged: true
+    network_mode: "host"
+    ports:
+      - "8080:8080"
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+      - /proc:/proc:ro
+    restart: unless-stopped

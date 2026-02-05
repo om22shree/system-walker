@@ -7,7 +7,6 @@
 *.dll
 *.so
 *.dylib
-
 # Test binary, built with `go test -c`
 *.test
 
@@ -23,7 +22,7 @@ profile.cov
 # Go workspace file
 go.work
 go.work.sum
-
+go.sum
 # env file
 .env
 
