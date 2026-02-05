@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>System Walker v7.0</title>
+    <title>System Walker v7.5</title>
     <style>
         :root {
             --bg: #0d1117;
@@ -12,13 +12,12 @@
             --text: #c9d1d9;
             --accent: #58a6ff;
             --success: #3fb950;
-            --warning: #d29922;
         }
 
         body {
             background-color: var(--bg);
             color: var(--text);
-            font-family: 'Segoe UI', 'Roboto', monospace;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
             padding: 20px;
         }
@@ -31,110 +30,116 @@
         .header {
             border: 1px solid var(--border);
             background: var(--panel);
-            padding: 15px;
+            padding: 12px 20px;
             border-radius: 6px;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
 
-        /* Nav & Search Bar */
-        .toolbar {
-            display: flex;
-            gap: 10px;
+        /* Independent Search & Nav Bar */
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            gap: 15px;
             margin-bottom: 15px;
         }
 
         .breadcrumb {
-            flex-grow: 1;
-            font-family: monospace;
-            padding: 10px;
             background: #090c10;
-            border-radius: 4px;
             border: 1px solid var(--border);
-            color: var(--accent);
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            overflow-x: auto;
+            white-space: nowrap;
         }
 
         .breadcrumb span {
+            color: var(--accent);
             cursor: pointer;
-            text-decoration: underline;
-            margin-right: 5px;
         }
 
-        .breadcrumb span:last-child {
-            text-decoration: none;
-            color: var(--text);
-            pointer-events: none;
+        .breadcrumb span:hover {
+            text-decoration: underline;
+        }
+
+        .search-box {
+            position: relative;
         }
 
         .search-input {
+            width: 100%;
             background: #090c10;
             border: 1px solid var(--border);
             color: var(--text);
-            padding: 10px;
+            padding: 10px 15px;
             border-radius: 4px;
-            width: 250px;
+            box-sizing: border-box;
             outline: none;
         }
 
         .search-input:focus {
             border-color: var(--accent);
+            box-shadow: 0 0 0 1px var(--accent);
         }
 
-        /* Table & Sorting */
+        /* Table Styling */
         .node-table {
             width: 100%;
             border-collapse: collapse;
+            background: var(--panel);
             border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
         }
 
         .node-table th {
-            background: var(--panel);
             text-align: left;
-            padding: 12px;
-            border-bottom: 2px solid var(--border);
+            padding: 12px 15px;
+            background: #21262d;
             color: #8b949e;
-            font-size: 12px;
+            font-size: 13px;
             cursor: pointer;
             user-select: none;
+            border-bottom: 1px solid var(--border);
         }
 
         .node-table th:hover {
             color: var(--text);
         }
 
-        .node-table th.sort-active {
-            color: var(--accent);
-        }
-
         .node-row {
             border-bottom: 1px solid var(--border);
-            transition: background 0.1s;
             cursor: pointer;
         }
 
         .node-row:hover {
-            background: #21262d;
+            background: #30363d;
         }
 
         .node-row td {
-            padding: 12px;
-            font-family: monospace;
+            padding: 10px 15px;
+            font-family: 'Cascadia Code', monospace;
+            font-size: 14px;
+        }
+
+        .name-cell {
+            color: var(--accent);
+            display: flex;
+            align-items: center;
         }
 
         .folder-icon {
-            color: var(--accent);
-            margin-right: 8px;
+            margin-right: 10px;
+            opacity: 0.7;
         }
 
-        #status-dot {
-            height: 10px;
-            width: 10px;
-            background-color: var(--success);
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 5px;
+        .empty-state {
+            padding: 40px;
+            text-align: center;
+            color: #8b949e;
         }
     </style>
 </head>
@@ -142,21 +147,23 @@
 <body>
     <div class="container">
         <div class="header">
-            <div><span id="status-dot"></span> <strong>System Walker v7.0</strong></div>
-            <div id="meta" style="color: var(--accent); font-family: monospace;">Initializing...</div>
+            <div><strong style="color: var(--success)">●</strong> System Walker Pro</div>
+            <div id="meta" style="font-family: monospace; font-size: 14px;">Syncing Kernel...</div>
         </div>
 
-        <div class="toolbar">
+        <div class="controls">
             <div id="breadcrumb" class="breadcrumb">/</div>
-            <input type="text" id="search" class="search-input" placeholder="Search nodes (e.g. chrome)...">
+            <div class="search-box">
+                <input type="text" id="search" class="search-input" placeholder="Filter by name (e.g. systemd)...">
+            </div>
         </div>
 
         <table class="node-table">
             <thead>
                 <tr>
-                    <th onclick="setSort('name')">Explorer ⇅</th>
-                    <th onclick="setSort('cpu')">CPU Usage ⇅</th>
-                    <th onclick="setSort('ram')">RAM Usage ⇅</th>
+                    <th onclick="setSort('name')">Node Name ⇅</th>
+                    <th onclick="setSort('cpu')">CPU ⇅</th>
+                    <th onclick="setSort('ram')">RAM ⇅</th>
                     <th onclick="setSort('pids')">PIDs ⇅</th>
                 </tr>
             </thead>
@@ -165,66 +172,58 @@
     </div>
 
     <script>
-        let currentNodes = [];
-        let sortKey = 'name';
-        let sortAsc = true;
-        let searchQuery = "";
-
-        const dashboard = document.getElementById('dashboard');
-        const meta = document.getElementById('meta');
-        const breadcrumb = document.getElementById('breadcrumb');
-        const searchInput = document.getElementById('search');
+        let allNodes = [];
+        let sortField = 'name';
+        let sortOrder = 1; // 1 for Asc, -1 for Desc
+        let filterText = "";
 
         const socket = new WebSocket(`ws://${window.location.host}/ws`);
+        const dashboard = document.getElementById('dashboard');
+        const searchInput = document.getElementById('search');
 
-        // Handle Search
+        // Search Logic: Independent of data fetch
         searchInput.addEventListener('input', (e) => {
-            searchQuery = e.target.value.toLowerCase();
-            render();
+            filterText = e.target.value.toLowerCase();
+            updateUI();
         });
 
-        function setSort(key) {
-            if (sortKey === key) sortAsc = !sortAsc;
-            else { sortKey = key; sortAsc = true; }
-            render();
+        function setSort(field) {
+            if (sortField === field) sortOrder *= -1;
+            else { sortField = field; sortOrder = 1; }
+            updateUI();
         }
 
         function navigate(path) {
             socket.send(path);
         }
 
-        function updateBreadcrumbs(path) {
-            const parts = path.split('/').filter(p => p);
-            let currentPath = '/sys/fs/cgroup';
-            let html = `<span onclick="navigate('/sys/fs/cgroup')">root</span> / `;
+        function updateUI() {
+            // 1. Filter
+            let displayNodes = allNodes.filter(n => n.name.toLowerCase().includes(filterText));
 
-            parts.slice(4).forEach((part, i) => { // Skip /sys/fs/cgroup
-                currentPath += '/' + part;
-                html += `<span onclick="navigate('${currentPath}')">${part}</span> / `;
-            });
-            breadcrumb.innerHTML = html;
-        }
+            // 2. Sort
+            displayNodes.sort((a, b) => {
+                let v1 = a[sortField];
+                let v2 = b[sortField];
 
-        function parseVal(val, key) {
-            if (key === 'pids') return parseInt(val);
-            if (key === 'cpu' || key === 'ram') return parseFloat(val) || 0;
-            return val;
-        }
+                // Numeric parsing for CPU/RAM/PIDs
+                if (sortField !== 'name') {
+                    v1 = parseFloat(v1) || parseInt(v1) || 0;
+                    v2 = parseFloat(v2) || parseInt(v2) || 0;
+                }
 
-        function render() {
-            let filtered = currentNodes.filter(n => n.name.toLowerCase().includes(searchQuery));
-
-            filtered.sort((a, b) => {
-                let v1 = parseVal(a[sortKey], sortKey);
-                let v2 = parseVal(b[sortKey], sortKey);
-                if (v1 < v2) return sortAsc ? -1 : 1;
-                if (v1 > v2) return sortAsc ? 1 : -1;
-                return 0;
+                return v1 > v2 ? (1 * sortOrder) : (-1 * sortOrder);
             });
 
-            dashboard.innerHTML = filtered.map(node => `
+            // 3. Render
+            if (displayNodes.length === 0) {
+                dashboard.innerHTML = `<tr><td colspan="4" class="empty-state">No nodes match your filter.</td></tr>`;
+                return;
+            }
+
+            dashboard.innerHTML = displayNodes.map(node => `
                 <tr class="node-row" onclick="navigate('${node.path}')">
-                    <td><span class="folder-icon">[+]</span>${node.name}</td>
+                    <td class="name-cell"><span class="folder-icon">📁</span>${node.name}</td>
                     <td>${node.cpu}</td>
                     <td>${node.ram}</td>
                     <td>${node.pids}</td>
@@ -234,15 +233,27 @@
 
         socket.onmessage = (event) => {
             const data = JSON.parse(event.data);
-            currentNodes = data.nodes || [];
-            meta.innerText = `${data.timestamp} | Cores: ${data.cores}`;
-            updateBreadcrumbs(data.location === '/' ? '/sys/fs/cgroup' : '/sys/fs/cgroup' + data.location);
-            render();
+            allNodes = data.nodes || [];
+
+            // Meta info
+            document.getElementById('meta').innerText = `${data.timestamp} | Cores: ${data.cores} | ${data.location}`;
+
+            // Breadcrumbs
+            const parts = data.location.split('/').filter(p => p);
+            let pathAcc = '/sys/fs/cgroup';
+            let bHtml = `<span onclick="navigate('/sys/fs/cgroup')">root</span>`;
+            parts.forEach(p => {
+                pathAcc += '/' + p;
+                bHtml += ` / <span onclick="navigate('${pathAcc}')">${p}</span>`;
+            });
+            document.getElementById('breadcrumb').innerHTML = bHtml;
+
+            updateUI();
         };
 
         socket.onclose = () => {
-            document.getElementById('status-dot').style.backgroundColor = '#f85149';
-            meta.innerText = "OFFLINE";
+            document.getElementById('meta').innerText = "CONNECTION LOST";
+            document.getElementById('meta').style.color = "#f85149";
         };
     </script>
 </body>
